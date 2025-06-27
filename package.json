@@ -7,12 +7,13 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node src/backend/agente/main.js"
   },
   "dependencies": {
     "@llamaindex/ollama": "^0.1.12",
     "cheerio": "^1.1.0",
-    "llamaindex": "^0.11.11",
+    "llamaindex": "^0.10.06",
     "node-fetch": "^3.3.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

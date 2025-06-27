@@ -2,10 +2,9 @@ import { tool, agent } from "llamaindex";
 import { Ollama } from "@llamaindex/ollama";
 import { z } from "zod";
 import { empezarChat } from './cli-chat.js'
-//import { Estudiantes } from "./lib/estudiantes.js";
 
 // Configuración
-const DEBUG = true;
+const DEBUG = false;
 
 // Instancia de la clase Estudiantes
 //const estudiantes = new Estudiantes();
@@ -20,12 +19,12 @@ Tu tarea es:
 - Leer la noticia que se encuentra en el texto o el link proporcionado.
 - Determinar si el contenido tiene relación con Climatech.
 
-Respondé solo con "Sí" o "No", sin dar una explicacion
+Respondé solo con "Sí" o "No". Si la respuesta es "Sí" genera un breve resmen de la noticia. Si la respuesta es "No" decí cual es el tema principal de la noticia
 `.trim();
 
 const ollamaLLM = new Ollama({
-    model: "qwen:7b",
-    temperature: 0.75,
+  model: "qwen3:1.7b",
+  temperature: 0.75,
     timeout: 2 * 60 * 1000, // Timeout de 2 minutos
 });
 
@@ -62,14 +61,29 @@ const evaluarNoticiaTool = tool({
       const respuesta = await ollamaLLM.complete({
         prompt: `${systemPrompt}\n\nNoticia:\n${texto}\n\n¿Está relacionada con Climatech?`,
       });
-      return respuesta;
-    },
-  });
+      const esClimatech = evaluacion.toLowerCase().includes("sí");
+
+    if (esClimatech) {
+      const resumen = await ollamaLLM.complete({
+        prompt: `Leé el siguiente texto de una noticia y escribí un resumen claro en no más de 5 líneas:\n\n${texto}`,
+      });
+
+      return `✅ Es una noticia sobre Climatech.\n\n📝 Resumen:\n${resumen}`;
+    } else {
+      const resumen = await ollamaLLM.complete({
+        prompt: `Leé el siguiente texto de una noticia y decí cual es su tema principal \n\n${texto}`,
+      });
+      return `❌ No es una noticia sobre Climatech.`;
+    }
+  },
+});
+      
+ 
   
 
 
 // Configuración del agente
-const elAgente = agent({
+const elagente = agent({
     tools: [extraerTextoDeNoticiaTool, evaluarNoticiaTool],
     llm: ollamaLLM,
     verbose: DEBUG,
@@ -84,4 +98,4 @@ Escribí 'exit' para salir.
 `;
 
 // Iniciar el chat
-empezarChat(elAgente, mensajeBienvenida);
+empezarChat(elagente, mensajeBienvenida);
