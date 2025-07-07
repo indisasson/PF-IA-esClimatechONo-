@@ -5,25 +5,31 @@ import { z } from "zod";
 import { empezarChat } from './cli-chat.js'
 //revisar la conexion con base de datos y porque no aparece la respuesta de que si hay algun newsletter relacionado  
 
+
 // Configuración
 const DEBUG = false;
+
 
 // Instancia de la clase Estudiantes
 //const estudiantes = new Estudiantes();
 //estudiantes.cargarEstudiantesDesdeJson();
+
 
 // System prompt básico
 const systemPrompt = `
 Sos un asistente que analiza noticias para detectar si están relacionadas con Climatech.
 Climatech incluye tecnologías que ayudan a combatir el cambio climático, como energías renovables, eficiencia energética, captura de carbono, movilidad sostenible, etc.
 
+
 Tu tarea es:
 - Leer la noticia que se encuentra en el texto o el link proporcionado.
 - Determinar si el contenido tiene relación con Climatech.
 
+
 Respondé solo con "Sí" o "No". Si la respuesta es "Sí" genera un breve resmen de la noticia. Si la respuesta es "No" decí cual es el tema principal de la noticia.
-Si la noticia es climatech y hay resumenes de newsletter que coinciden en tematica, listá los titulos de los newsletter relacionados (que se almacenan en la base de datos). 
+Si la noticia es climatech y hay resumenes de newsletter que coinciden en tematica, listá los titulos de los newsletter relacionados (que se almacenan en la base de datos).
 `.trim();
+
 
 const ollamaLLM = new Ollama({
   model: "qwen3:1.7b",
@@ -32,68 +38,76 @@ const ollamaLLM = new Ollama({
 });
 
 
+
+
 // TODO: Implementar la Tool para buscar por nombre
 import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
 
-// Función para buscar newsletters relacionados en Supabase
+
 async function buscarNewslettersRelacionados(resumenNoticia) {
-  // Paso 1: traer los newsletters y sus resúmenes de la DB
-  const { data: newsletters, error } = await supabase
-    .from('newsletters')
-    .select('id, titulo, resumen')  // asumimos que hay campo resumen
+  // 1. Traer los newsletters de la base de datos
+  const { data: Newsletter, error } = await supabase
+    .from('Newsletter')
+    .select('id, titulo, resumen')
     .limit(20);
 
+
   if (error) {
-    console.error('Error al traer newsletters:', error);
+    console.error('Error al traer Newsletter:', error);
     return [];
   }
+  if (!Newsletter || Newsletter.length === 0) return [];
 
-  if (!newsletters || newsletters.length === 0) return [];
 
-  // Paso 2: crear un prompt para que LLM compare el resumen de la noticia con cada resumen de newsletter
-  // Acá mandamos todo junto para que el LLM decida qué newsletters están relacionados
-
+  // 2. Crear el prompt para el LLM
   const prompt = `
 Tengo un resumen de noticia sobre Climatech y una lista de newsletters con sus resúmenes.
 Dime cuáles newsletters están relacionados con esta noticia (temas similares).
 
+
 Resumen noticia:
-"""${resumenNoticia}"""
+"${resumenNoticia}"
+
 
 Lista de newsletters:
 ${newsletters.map((nl, i) => `${i+1}. ${nl.titulo}: ${nl.resumen}`).join('\n')}
 
-Devuelveme solo los números y títulos de los newsletters relacionados.
+
+Devuélveme solo los números y títulos de los newsletters relacionados.
 `;
 
+
+  // 3. Consultar al LLM
   const respuesta = await ollamaLLM.complete({
     prompt,
     temperature: 0,
   });
 
-  // Ejemplo: respuesta = "1. Newsletter A\n3. Newsletter C"
-  // Parsear respuesta para obtener newsletters relacionados
 
+  // 4. Parsear la respuesta para obtener los newsletters relacionados
   const relacionados = [];
   const lineas = respuesta.split('\n').map(l => l.trim()).filter(Boolean);
   for (const linea of lineas) {
-    // Extraer índice o título
     const match = linea.match(/^(\d+)\.\s*(.+)$/);
     if (match) {
-      const idx = parseInt(match[1], 10) -1;
+      const idx = parseInt(match[1], 10) - 1;
       if (newsletters[idx]) {
         relacionados.push(newsletters[idx]);
       }
     } else {
-      // Si no es formato esperado, intentar buscar por título en la lista
+      // Si no es formato esperado, intentar buscar por título
       const found = newsletters.find(nl => linea.includes(nl.titulo));
       if (found) relacionados.push(found);
     }
   }
 
+
   return relacionados;
 }
+
+
+
 
 
 
@@ -104,16 +118,23 @@ const extraerTextoDeNoticiaTool = tool({
     url: z.string().describe("El link de la noticia"),
   }),
   execute: async ({ url }) => {
-    const res = await fetch(url);
-    const html = await res.text();
-    const $ = cheerio.load(html);
-
-    // Extracta todos los párrafos del artículo (puede afinarse más)
-    const texto = $('p').map((_, el) => $(el).text()).get().join('\n');
-    return texto.slice(0, 3000); // Límite razonable para entrada del LLM
+    try {
+      const res = await fetch(url);
+      const html = await res.text();
+      const $ = cheerio.load(html);
+      const texto = $('p').map((_, el) => $(el).text()).get().join('\n');
+      if (!texto.trim()) throw new Error('No se pudo extraer texto');
+      return texto.slice(0, 3000);
+    } catch (e) {
+      // Si falla, devolver el título del link como fallback
+      const titulo = url.split('/').pop().replace(/[-_]/g, ' ');
+      return titulo;
+    }
   },
 });
 
+
+// ...existing code...
 const evaluarNoticiaTool = tool({
   name: "evaluarNoticiaClimatech",
   description: "Evalúa si el texto de una noticia está relacionado con Climatech y busca newsletters relacionados",
@@ -121,33 +142,31 @@ const evaluarNoticiaTool = tool({
     texto: z.string().describe("El contenido textual de la noticia"),
     url: z.string().optional().describe("URL de la noticia para buscar newsletters"),
   }),
-  execute: async ({ texto, url }) => {
-    // Evaluar si es Climatech
+  execute: async ({ texto }) => {
+    // 1. Evaluar si es Climatech
     const evaluacion = await ollamaLLM.complete({
       prompt: `${systemPrompt}\n\nNoticia:\n${texto}\n\n¿Está relacionada con Climatech?`,
     });
-    const esClimatech = evaluacion.toLowerCase().includes("sí");
+    const esClimatech = evaluacion.trim().toLowerCase().startsWith("sí");
+
 
     if (esClimatech) {
-      // Buscar newsletters relacionados solo si tenemos url
-      let newslettersRelacionados = [];
-      if (url) {
-        newslettersRelacionados = await buscarNewslettersRelacionados(url);
+      // 2. Generar resumen de la noticia
+      const resumen = await ollamaLLM.complete({
+        prompt: `Leé el siguiente texto de una noticia y escribí un resumen claro en no más de 5 líneas:\n\n${texto}`,
+      });
 
-        const resumen = await ollamaLLM.complete({
-          prompt: `Leé el siguiente texto de una noticia y escribí un resumen claro en no más de 5 líneas:\n\n${texto}`,
-        });
-  
-        if (newslettersRelacionados.length > 0) {
-          const titulos = newslettersRelacionados.map(nl => `- ${nl.titulo}`).join('\n');
-          return `✅ Es una noticia sobre Climatech.\n\n📝 Resumen:\n${resumen}\n\n📧 Newsletters relacionados:\n${titulos}`;
-        } else {
-          return `✅ Es una noticia sobre Climatech.\n\n📝 Resumen:\n${resumen}\n\n⚠️ No se encontraron newsletters relacionados en la base de datos.`;
-        }
+
+      // 3. Buscar newsletters relacionados usando el resumen
+      const newslettersRelacionados = await buscarNewslettersRelacionados(resumen);
+
+
+      if (newslettersRelacionados.length > 0) {
+        const titulos = newslettersRelacionados.map(nl => `- ${nl.titulo}`).join('\n');
+        return `✅ Es una noticia sobre Climatech.\n\n📝 Resumen:\n${resumen}\n\n📧 Newsletters relacionados:\n${titulos}`;
+      } else {
+        return `✅ Es una noticia sobre Climatech.\n\n📝 Resumen:\n${resumen}\n\n⚠️ No hay ningún newsletter con su misma temática.`;
       }
-
-      
-
     } else {
       // No es Climatech, no buscar newsletters
       return `❌ No es una noticia sobre Climatech. Tema principal: ${await ollamaLLM.complete({
@@ -157,8 +176,10 @@ const evaluarNoticiaTool = tool({
   },
 });
 
-      
+
+     
  
+
 
 // Configuración del agente
 const elagente = agent({
@@ -168,6 +189,7 @@ const elagente = agent({
     systemPrompt: systemPrompt,
 });
 
+
 // Mensaje de bienvenida
 const mensajeBienvenida = `
 🌱 Soy un asistente que analiza noticias.
@@ -175,5 +197,7 @@ Pegá el link de una noticia y te digo si trata sobre Climatech o no.
 Escribí 'exit' para salir.
 `;
 
+
 // Iniciar el chat
 empezarChat(elagente, mensajeBienvenida);
+
