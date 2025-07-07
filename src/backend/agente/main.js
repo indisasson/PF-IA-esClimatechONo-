@@ -24,10 +24,8 @@ Climatech incluye tecnologías que ayudan a combatir el cambio climático, como 
 Tu tarea es:
 - Leer la noticia que se encuentra en el texto o el link proporcionado.
 - Determinar si el contenido tiene relación con Climatech.
-
-
-Respondé solo con "Sí" o "No". Si la respuesta es "Sí" genera un breve resmen de la noticia. Si la respuesta es "No" decí cual es el tema principal de la noticia.
-Si la noticia es climatech y hay resumenes de newsletter que coinciden en tematica, listá los titulos de los newsletter relacionados (que se almacenan en la base de datos).
+- Respondé solo con "Sí" o "No". Si la respuesta es "Sí" genera un breve resmen de la noticia. Si la respuesta es "No" decí cual es el tema principal de la noticia.
+- Si es Climatech, comparo los resumenes de la base de dsatos sobre los newsletetr almacenados. Si las tematicas coinciden con la noticia ingresada, devolves los titulos de los newsletter de la base de datos que se relacionan con la noticia relacionada
 `.trim();
 
 
@@ -60,53 +58,38 @@ async function buscarNewslettersRelacionados(resumenNoticia) {
   if (!Newsletter || Newsletter.length === 0) return [];
 
 
-  // 2. Crear el prompt para el LLM
-  const prompt = `
+// 2. Crear el prompt para el LLM
+const prompt = `
 Tengo un resumen de noticia sobre Climatech y una lista de newsletters con sus resúmenes.
-Dime cuáles newsletters están relacionados con esta noticia (temas similares).
-
+Dime SOLO los números de los newsletters que están relacionados con esta noticia (temas similares).
+NO inventes títulos ni temas, solo responde con los números separados por coma.
 
 Resumen noticia:
 "${resumenNoticia}"
 
-
 Lista de newsletters:
-${newsletters.map((nl, i) => `${i+1}. ${nl.titulo}: ${nl.resumen}`).join('\n')}
+${Newsletter.map((nl, i) => `${i+1}. ${nl.titulo}: ${nl.resumen}`).join('\n')}
 
-
-Devuélveme solo los números y títulos de los newsletters relacionados.
+IMPORTANTE: Devuélveme SOLO los números de los newsletters relacionados, separados por coma. Ejemplo: 1, 3, 5
 `;
 
+// 3. Consultar al LLM
+const respuesta = await ollamaLLM.complete({
+  prompt,
+  temperature: 0,
+});
 
-  // 3. Consultar al LLM
-  const respuesta = await ollamaLLM.complete({
-    prompt,
-    temperature: 0,
+// 4. Parsear SOLO los números de la respuesta
+const relacionados = [];
+const numeros = respuesta.match(/\d+/g);
+if (numeros) {
+  numeros.forEach(num => {
+    const idx = parseInt(num, 10) - 1;
+    if (Newsletter[idx]) relacionados.push(Newsletter[idx]);
   });
-
-
-  // 4. Parsear la respuesta para obtener los newsletters relacionados
-  const relacionados = [];
-  const lineas = respuesta.split('\n').map(l => l.trim()).filter(Boolean);
-  for (const linea of lineas) {
-    const match = linea.match(/^(\d+)\.\s*(.+)$/);
-    if (match) {
-      const idx = parseInt(match[1], 10) - 1;
-      if (newsletters[idx]) {
-        relacionados.push(newsletters[idx]);
-      }
-    } else {
-      // Si no es formato esperado, intentar buscar por título
-      const found = newsletters.find(nl => linea.includes(nl.titulo));
-      if (found) relacionados.push(found);
-    }
-  }
-
-
-  return relacionados;
 }
-
-
+return relacionados;
+}
 
 
 
@@ -147,7 +130,14 @@ const evaluarNoticiaTool = tool({
     const evaluacion = await ollamaLLM.complete({
       prompt: `${systemPrompt}\n\nNoticia:\n${texto}\n\n¿Está relacionada con Climatech?`,
     });
-    const esClimatech = evaluacion.trim().toLowerCase().startsWith("sí");
+    const esClimatech = eval
+    
+    
+    
+    
+    
+    
+    uacion.trim().toLowerCase().startsWith("sí");
 
 
     if (esClimatech) {

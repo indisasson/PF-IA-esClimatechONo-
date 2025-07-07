@@ -10,8 +10,10 @@ function formatResponse(response){
 }
 
 const mensajeBienvenidaDefault = `
-🌱 Soy un asistente que analiza noticias para determinar si son climatech.
+🌱 Soy un asistente que analiza noticias para detectar si están relacionadas con Climatech.
 Pegá el link de una noticia y te digo si trata sobre Climatech o no.
+Si es Climatech, te doy un resumen y los títulos de newsletters relacionados.
+Si no es Climatech, te doy solo los títulos de newsletters disponibles.
 Escribí 'exit' para salir.
 `
 
