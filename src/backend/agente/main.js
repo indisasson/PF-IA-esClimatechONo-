@@ -1,8 +1,8 @@
-import {supabase} from '../../../data/supabaseClient.js'
 import { tool, agent } from "llamaindex";
 import { Ollama } from "@llamaindex/ollama";
 import { z } from "zod";
 import { empezarChat } from './cli-chat.js'
+import {Bdd} from '../../data/Bdd.js'
 //revisar la conexion con base de datos y porque no aparece la respuesta de que si hay algun newsletter relacionado  
 
 
@@ -44,80 +44,96 @@ import * as cheerio from 'cheerio';
 
 
 async function buscarNewslettersRelacionados(resumenNoticia) {
-  // 1. Traer los newsletters de la base de datos
-  const { data: Newsletter, error } = await supabase
-    .from('Newsletter')
-    .select('id, titulo, resumen')
-    .limit(20);
+  const bdd = new Bdd();
+  const Newsletters = await bdd.getNewsletters();
 
+// ver si así esta bien lalamada la función
 
-  if (error) {
-    console.error('Error al traer Newsletter:', error);
-    return [];
-  }
-  if (!Newsletter || Newsletter.length === 0) return [];
+    const prompt = `
+      Tengo un resumen de una noticia sobre Climatech:
+      "${resumenNoticia}"
 
+      Y una lista de newsletters con su título y resumen:
+      ${Newsletters.map(n => `- Título: "${n.titulo}", Resumen: ${n.resumen}`).join('\n')}
 
-// 2. Crear el prompt para el LLM
-const prompt = `
-Tengo un resumen de noticia sobre Climatech y una lista de newsletters con sus resúmenes.
-Dime SOLO los números de los newsletters que están relacionados con esta noticia (temas similares).
-NO inventes títulos ni temas, solo responde con los números separados por coma.
+      Compará el resumen de la noticia con los resúmenes de los newsletters.
+      Si alguno trata una temática similar, respondé solo con una lista de los **títulos exactos** de los newsletters relacionados, uno por línea.
+      No agregues explicaciones, solo los títulos.
+    `;
 
-Resumen noticia:
-"${resumenNoticia}"
+      const respuesta = await ollamaLLM.complete({
+        prompt,
+        temperature: 0,
+      });
 
-Lista de newsletters:
-${Newsletter.map((nl, i) => `${i+1}. ${nl.titulo}: ${nl.resumen}`).join('\n')}
+      const relacionados = [];
 
-IMPORTANTE: Devuélveme SOLO los números de los newsletters relacionados, separados por coma. Ejemplo: 1, 3, 5
-`;
+      const lineas = respuesta.split('\n').map(linea => linea.trim()).filter(Boolean);
 
-// 3. Consultar al LLM
-const respuesta = await ollamaLLM.complete({
-  prompt,
-  temperature: 0,
-});
+      lineas.forEach(tituloRespuesta => {
+        const newsletter = Newsletters.find(n => n.titulo.toLowerCase() === tituloRespuesta.toLowerCase());
+        if (newsletter) {
+          relacionados.push({
+            id: newsletter.id,
+            link: newsletter.link,
+            titulo: newsletter.titulo,
+            resumen: newsletter.resumen,
+          });
+        }
+      });
 
-// 4. Parsear SOLO los números de la respuesta
-const relacionados = [];
-const numeros = respuesta.match(/\d+/g);
-if (numeros) {
-  numeros.forEach(num => {
-    const idx = parseInt(num, 10) - 1;
-    if (Newsletter[idx]) relacionados.push(Newsletter[idx]);
-  });
+  return relacionados;
 }
-return relacionados;
-}
-
-
 
 
 const extraerTextoDeNoticiaTool = tool({
   name: "extraerTextoDeNoticia",
-  description: "Descarga y extrae el contenido principal de una noticia desde un link",
+  description: "Extrae el contenido principal de una noticia desde un link, incluyendo el título y el texto (máximo 3000 caracteres).",
   parameters: z.object({
     url: z.string().describe("El link de la noticia"),
   }),
   execute: async ({ url }) => {
     try {
       const res = await fetch(url);
+      if (!res.ok) throw new Error(`Error al descargar la página: ${res.statusText}`);
+
       const html = await res.text();
       const $ = cheerio.load(html);
-      const texto = $('p').map((_, el) => $(el).text()).get().join('\n');
-      if (!texto.trim()) throw new Error('No se pudo extraer texto');
-      return texto.slice(0, 3000);
+
+      // Título de la noticia
+      const titulo = $('title').text().trim() || 'Sin título';
+
+      // Extraer párrafos significativos
+      const parrafos = $('p')
+        .map((_, el) => $(el).text().trim())
+        .get()
+        .filter(texto => texto.length > 30); // Filtrar basura
+
+      if (parrafos.length === 0) throw new Error('No se pudo extraer texto útil');
+
+      const texto = parrafos.join('\n').slice(0, 3000);
+
+      return {
+        titulo,
+        texto,
+        url,
+      };
     } catch (e) {
-      // Si falla, devolver el título del link como fallback
-      const titulo = url.split('/').pop().replace(/[-_]/g, ' ');
-      return titulo;
+      console.error('Error en extraerTextoDeNoticiaTool:', e.message);
+
+      // Fallback en caso de error: devolver título simple y link
+      return {
+        titulo: 'No se pudo extraer el título',
+        texto: 'No se pudo extraer el contenido de la noticia.',
+        url,
+      };
     }
   },
 });
 
 
-// ...existing code...
+
+
 const evaluarNoticiaTool = tool({
   name: "evaluarNoticiaClimatech",
   description: "Evalúa si el texto de una noticia está relacionado con Climatech y busca newsletters relacionados",
@@ -131,15 +147,7 @@ const evaluarNoticiaTool = tool({
       prompt: `${systemPrompt}\n\nNoticia:\n${texto}\n\n¿Está relacionada con Climatech?`,
     });
     const esClimatech = eval
-    
-    
-    
-    
-    
-    
-    uacion.trim().toLowerCase().startsWith("sí");
-
-
+    evaluacion.trim().toLowerCase().startsWith("sí");
     if (esClimatech) {
       // 2. Generar resumen de la noticia
       const resumen = await ollamaLLM.complete({
@@ -148,6 +156,7 @@ const evaluarNoticiaTool = tool({
 
 
       // 3. Buscar newsletters relacionados usando el resumen
+      
       const newslettersRelacionados = await buscarNewslettersRelacionados(resumen);
 
 

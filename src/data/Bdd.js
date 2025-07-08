@@ -1,18 +1,15 @@
 import DBConfig from "./DBConfig";
+import pkg from 'pg'
 
-
-/*import pkg from 'pg'
 const { Client, Pool } = pkg;
-
-
-export default class Province Repository {
-    getAllAsync = async () => {
+export default class Bdd {
+    getNewsletters = async () => {
         let returnArray = null;
         const client = new Client (DBConfig);
         try {
             await client.connect();
-            const sql = "SELECT * FROM provinces';
-            const result await client.query(sql);
+            const sql = `SELECT * FROM Newsletter`;
+            const result = await client.query(sql);
             await client.end();
             returnArray = result.rows;
         } catch (error) {
@@ -20,5 +17,5 @@ export default class Province Repository {
         }
         return returnArray;
 }
-*/
 
+}
